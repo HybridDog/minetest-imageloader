@@ -45,27 +45,84 @@ function imageloader.type(filename)
 	return def.description
 end
 
-function imageloader.to_schematic(bmp, pal)
-	local data = { }
-	local datai = 1
-	for z = 1, bmp.h do
-		for x = 1, bmp.w do
-			local c = bmp.pixels[z][bmp.w + 1 - x]
-			local i = palette.bestfit_color(pal, c)
-			if (i == 1) and ((c.r ~= 255) or (c.g ~= 0) or (c.r ~= 255)) then
-				print("WARNING: wrong color taken as transparency:"
-					..(("at (%d,%d): [R=%d,G=%d,B=%d]"):format(x, z, c.r, c.g, c.b))
-				)
+local dither = true
+if dither then
+	function imageloader.to_schematic(bmp, pal)
+		local data = { }
+		local datai = 1
+		local rgb_off = {0,0,0}
+		for z = 1, bmp.h do
+			for x = 1, bmp.w do
+				local c = bmp.pixels[z][bmp.w + 1 - x]
+				local transparent = c.r == 255 and c.g == 0 and c.b == 255
+				local nodeinfo
+				if not transparent then
+					local actual_lincol = {
+						(c.r / 255) ^ 2.2 + rgb_off[1],
+						(c.g / 255) ^ 2.2 + rgb_off[2],
+						(c.b / 255) ^ 2.2 + rgb_off[3],
+					}
+					for i = 1,3 do
+						actual_lincol[i] = math.max(0.0,
+							math.min(1.0, actual_lincol[i]))
+					end
+					c = {
+						r = actual_lincol[1] ^ (1/2.2) * 255,
+						g = actual_lincol[2] ^ (1/2.2) * 255,
+						b = actual_lincol[3] ^ (1/2.2) * 255,
+					}
+					c.r = math.max(0, math.min(255, math.floor(c.r + 0.5)))
+					c.g = math.max(0, math.min(255, math.floor(c.g + 0.5)))
+					c.b = math.max(0, math.min(255, math.floor(c.b + 0.5)))
+
+					nodeinfo = pal[palette.bestfit_color(pal, c)]
+
+					local used_lincol = {
+						(nodeinfo.r / 255) ^ 2.2,
+						(nodeinfo.g / 255) ^ 2.2,
+						(nodeinfo.b / 255) ^ 2.2,
+					}
+					for i = 1,3 do
+						rgb_off[i] = actual_lincol[i] - used_lincol[i]
+					end
+				else
+					nodeinfo = pal[1]
+				end
+
+				data[datai] = {name = nodeinfo.node}
+				datai = datai + 1
 			end
-			local node = pal[i].node
-			data[datai] = { name=node }
-			datai = datai + 1
 		end
+		return {
+			size = { x=bmp.w, y=1, z=bmp.h },
+			data = data,
+		}
 	end
-	return {
-		size = { x=bmp.w, y=1, z=bmp.h },
-		data = data,
-	}
+else
+	function imageloader.to_schematic(bmp, pal)
+		local data = { }
+		local datai = 1
+		for z = 1, bmp.h do
+			for x = 1, bmp.w do
+				local c = bmp.pixels[z][bmp.w + 1 - x]
+				local i = palette.bestfit_color(pal, c)
+				if (i == 1) and ((c.r ~= 255) or (c.g ~= 0)
+				or (c.r ~= 255)) then
+					print("WARNING: wrong color taken as transparency:"
+						..(("at (%d,%d): [R=%d,G=%d,B=%d]"):format(x, z, c.r,
+						c.g, c.b))
+					)
+				end
+				local node = pal[i].node
+				data[datai] = { name=node }
+				datai = datai + 1
+			end
+		end
+		return {
+			size = { x=bmp.w, y=1, z=bmp.h },
+			data = data,
+		}
+	end
 end
 
 minetest.register_chatcommand("loadimage", {
